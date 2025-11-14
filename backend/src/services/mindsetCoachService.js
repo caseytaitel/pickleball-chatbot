@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { getRecentMessages, addUserAndAssistantMessages } from "./chatService.js";
 
-const openai = new OpenAI({
+// Exported so other modules (like routes) can reuse it for streaming
+export const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
@@ -23,7 +24,8 @@ Guidelines:
 - Never discuss swing mechanics; stay on mindset and decision-making.
 `;
 
-export async function handleMindsetChat(userContent) {
+// Build the messages array using DB history + new user content
+async function buildMindsetMessagesInternal(userContent) {
   const history = await getRecentMessages(50);
 
   const messages = [
@@ -34,6 +36,18 @@ export async function handleMindsetChat(userContent) {
     })),
     { role: "user", content: userContent },
   ];
+
+  return messages;
+}
+
+// Exported helper: used by both non-streaming and streaming paths
+export async function buildMindsetMessages(userContent) {
+  return buildMindsetMessagesInternal(userContent);
+}
+
+// Existing non-streaming handler (used by /api/chat/message)
+export async function handleMindsetChat(userContent) {
+  const messages = await buildMindsetMessagesInternal(userContent);
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4.1-mini",

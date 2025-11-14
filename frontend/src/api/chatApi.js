@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 export async function fetchChatHistory() {
   const response = await fetch(`${API_BASE_URL}/api/chat/history`);
@@ -12,6 +13,7 @@ export async function fetchChatHistory() {
   return data.messages || [];
 }
 
+// Non-streaming fallback (still available if you ever want it)
 export async function sendChatMessage(content) {
   const response = await fetch(`${API_BASE_URL}/api/chat/message`, {
     method: "POST",

@@ -1,5 +1,3 @@
-// frontend/src/App.jsx
-
 import { useEffect, useRef, useState } from "react";
 import { fetchChatHistory, API_BASE_URL } from "./api/chatApi";
 import "./App.css";
@@ -11,6 +9,7 @@ function App() {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const [thinkingPhase, setThinkingPhase] = useState(null); // "clarifying" | "organizing" | "summarizing" | "error" | null
+  const [lastQuestion, setLastQuestion] = useState(null); // for retry after error
 
   const messagesEndRef = useRef(null);
 
@@ -40,13 +39,15 @@ function App() {
     loadHistory();
   }, []);
 
-  async function handleSendMessage() {
-    const trimmed = input.trim();
+  async function handleSendMessage(customContent) {
+    const rawContent = customContent ?? input;
+    const trimmed = rawContent.trim();
     if (!trimmed || isSending) return;
 
     setError("");
+    setLastQuestion(trimmed);
 
-    // 1) Create a temp user message and assistant placeholder
+    // Create a temp user message and assistant placeholder
     const nowIso = new Date().toISOString();
     const userId = Date.now();
     const assistantId = `${userId}-assistant`;
@@ -65,13 +66,12 @@ function App() {
       createdAt: nowIso,
     };
 
-    // Add both to the UI immediately so you see them right away
+    // Add both to the UI immediately
     setMessages((prev) => [...prev, tempUserMessage, tempAssistantMessage]);
     setInput("");
     setIsSending(true);
     setThinkingPhase("clarifying");
 
-    // Thinking phase timers (time-based phases)
     const phaseTimeouts = [];
     phaseTimeouts.push(
       setTimeout(() => {
@@ -108,7 +108,6 @@ function App() {
         if (value) {
           const chunkText = decoder.decode(value, { stream: !done });
           if (chunkText) {
-            // Append chunk to the last assistant message (our placeholder)
             setMessages((prev) => {
               const updated = [...prev];
               const index = updated.findIndex((m) => m.id === assistantId);
@@ -124,23 +123,41 @@ function App() {
         }
       }
 
-      // Success – clear thinking phase
       setThinkingPhase(null);
-
-      // Optional: you can refresh from history if you want exact DB IDs,
-      // but it's not required for correct UI behavior, so we'll skip it here.
-      // If you ever want it:
-      // const latest = await fetchChatHistory();
-      // setMessages(latest);
+      // Optional: could refresh from history, but not required
     } catch (err) {
       console.error(err);
       setError(
-        "Connection lost while the coach was responding. You can try again."
+        "Connection lost while the coach was responding. You can retry your last question."
       );
       setThinkingPhase("error");
+      // Note: partial text (if any) remains in the assistant bubble.
     } finally {
       setIsSending(false);
       phaseTimeouts.forEach(clearTimeout);
+    }
+  }
+
+  async function handleResetConversation() {
+    try {
+      setError("");
+      setThinkingPhase(null);
+      setIsSending(false);
+      setLastQuestion(null);
+
+      const response = await fetch(`${API_BASE_URL}/api/chat/reset`, {
+        method: "POST",
+      });
+
+      if (!response.ok && response.status !== 204) {
+        throw new Error("Failed to reset conversation");
+      }
+
+      // Clear UI messages
+      setMessages([]);
+    } catch (err) {
+      console.error(err);
+      setError("Could not reset the conversation. Please try again.");
     }
   }
 
@@ -219,17 +236,41 @@ function App() {
         </main>
 
         <footer className="chat-footer">
-          {/* Thinking bar moved here so it's always visible while streaming */}
-          {thinkingPhase && (
-            <div className="thinking-bar">
-              <div className="thinking-dots">
-                <span className="thinking-dot" />
-                <span className="thinking-dot" />
-                <span className="thinking-dot" />
+          {/* Top row: thinking + reset + optional retry */}
+          <div className="footer-status-row">
+            {thinkingPhase && (
+              <div className="thinking-bar">
+                <div className="thinking-dots">
+                  <span className="thinking-dot" />
+                  <span className="thinking-dot" />
+                  <span className="thinking-dot" />
+                </div>
+                <div className="thinking-text">{renderThinkingText()}</div>
               </div>
-              <div className="thinking-text">{renderThinkingText()}</div>
+            )}
+
+            <div className="footer-buttons">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={handleResetConversation}
+                disabled={isSending || messages.length === 0}
+              >
+                Reset Conversation
+              </button>
+
+              {error && lastQuestion && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => handleSendMessage(lastQuestion)}
+                  disabled={isSending}
+                >
+                  Retry Last Question
+                </button>
+              )}
             </div>
-          )}
+          </div>
 
           <div className="input-wrapper">
             <textarea
@@ -242,7 +283,7 @@ function App() {
             />
             <button
               className="send-button"
-              onClick={handleSendMessage}
+              onClick={() => handleSendMessage()}
               disabled={isSending || !input.trim()}
             >
               {isSending ? "Coach is thinking…" : "Send"}

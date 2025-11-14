@@ -1,5 +1,9 @@
 import express from "express";
-import { getRecentMessages, addUserAndAssistantMessages } from "../services/chatService.js";
+import {
+  getRecentMessages,
+  addUserAndAssistantMessages,
+  clearConversationMessages,
+} from "../services/chatService.js";
 import {
   handleMindsetChat,
   buildMindsetMessages,
@@ -53,14 +57,12 @@ router.post("/stream", async (req, res) => {
     res.setHeader("Transfer-Encoding", "chunked");
     res.setHeader("Cache-Control", "no-cache");
 
-    // In some environments, you can flush headers explicitly
     if (res.flushHeaders) {
       res.flushHeaders();
     }
 
     let fullText = "";
 
-    // Call OpenAI with streaming enabled
     const stream = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       messages,
@@ -76,20 +78,16 @@ router.post("/stream", async (req, res) => {
       res.write(delta);
     }
 
-    // End the HTTP response once streaming is complete
     res.end();
 
-    // Persist user + assistant messages to the DB
     await addUserAndAssistantMessages(content, fullText);
   } catch (err) {
     console.error("POST /api/chat/stream error", err);
 
-    // If headers haven't been sent, send JSON error
     if (!res.headersSent) {
       return res.status(500).json({ error: "Failed to stream chat message" });
     }
 
-    // If we were mid-stream, just end the response
     try {
       res.end();
     } catch (_) {
@@ -98,5 +96,16 @@ router.post("/stream", async (req, res) => {
   }
 });
 
-export default router;
+// POST /api/chat/reset  (clear conversation)
+router.post("/reset", async (req, res) => {
+  try {
+    await clearConversationMessages();
+    // 204 No Content = success with empty body
+    res.status(204).end();
+  } catch (err) {
+    console.error("POST /api/chat/reset error", err);
+    res.status(500).json({ error: "Failed to reset conversation" });
+  }
+});
 
+export default router;

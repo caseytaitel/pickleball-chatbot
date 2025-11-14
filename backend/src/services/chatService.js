@@ -51,3 +51,12 @@ export async function addUserAndAssistantMessages(userContent, assistantContent)
 
   return { userMessage, assistantMessage };
 }
+
+// New: clear all messages for the default conversation
+export async function clearConversationMessages() {
+  await ensureDefaultConversation();
+
+  await prisma.message.deleteMany({
+    where: { conversationId: DEFAULT_CONVERSATION_ID },
+  });
+}
